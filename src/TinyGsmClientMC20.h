@@ -204,7 +204,7 @@ class GsmClientSecure : public GsmClient
 public:
   GsmClientSecure() {}
 
-  GsmClientSecure(TinyGsmMC20& modem, uint8_t mux = 1)
+  GsmClientSecure(TinyGsmMC20& modem, uint8_t mux = 0)
     : GsmClient(modem, mux)
   {}
 
@@ -815,6 +815,7 @@ public:
           if (mux >= 0 && mux < TINY_GSM_MUX_COUNT && sockets[mux]) {
             sockets[mux]->got_data = true;
           }
+          data = "";
         }
       }
     } while (millis() - startMillis < timeout);
