@@ -216,6 +216,12 @@ public:
     sock_connected = at->modemConnect(host, port, mux, true);
     return sock_connected;
   }
+
+  virtual size_t write(const uint8_t *buf, size_t size) {
+    TINY_GSM_YIELD();
+    at->maintain();
+    return at->modemSend(buf, size, mux, true);
+  }
 };
 
 //============================================================================//
@@ -641,10 +647,17 @@ protected:
     return true;
   }
 
-  int modemSend(const void* buff, size_t len, uint8_t mux) {
-    sendAT(GF("+QISEND="), mux, ',', len);
-    if (waitResponse(GF(">")) != 1) {
-      return 0;
+  int modemSend(const void* buff, size_t len, uint8_t mux, bool ssl = false) {
+    if (ssl) {
+      sendAT(GF("+QSSLSEND="), mux, ',', len);
+      if (waitResponse(GF(">")) != 1) {
+        return 0;
+      }
+    } else {
+      sendAT(GF("+QISEND="), mux, ',', len);
+      if (waitResponse(GF(">")) != 1) {
+        return 0;
+      }
     }
 
     stream.write((uint8_t*)buff, len);
@@ -653,15 +666,17 @@ protected:
       return 0;
     }
 
-    while(true) {
-      sendAT(GF("+QISACK="), mux);
-      waitResponse(GF("+QISACK:"));
-      streamSkipUntil(',');
-      streamSkipUntil(',');
-      int unAckData = stream.readStringUntil('\n').toInt();
-      waitResponse();
-      if (unAckData == 0) break;
-      delay(200);
+    if (!ssl) {
+      while(true) {
+        sendAT(GF("+QISACK="), mux);
+        waitResponse(GF("+QISACK:"));
+        streamSkipUntil(',');
+        streamSkipUntil(',');
+        int unAckData = stream.readStringUntil('\n').toInt();
+        waitResponse();
+        if (unAckData == 0) break;
+        delay(200);
+      }
     }
 
     return len; 
