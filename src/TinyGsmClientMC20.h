@@ -222,6 +222,44 @@ public:
     at->maintain();
     return at->modemSend(buf, size, mux, true);
   }
+
+  virtual int read(uint8_t *buf, size_t size) {
+    TINY_GSM_YIELD();
+    at->maintain(true);
+    size_t cnt = 0;  
+    while (cnt < size) {
+      size_t chunk = TinyGsmMin(size-cnt, rx.size());
+      if (chunk > 0) {
+        rx.get(buf, chunk);
+        buf += chunk;
+        cnt += chunk;
+        continue;
+      }
+      at->maintain(true);
+      if (sock_available > 0) {
+        sock_available -= at->modemRead(TinyGsmMin((uint16_t)rx.free(), sock_available), mux, true);
+      } else {
+        break;
+      }
+    }
+    return cnt;
+  }
+
+  virtual int read() {
+    uint8_t c;
+    if (read(&c, 1) == 1) {
+      return c;
+    }
+    return -1;
+  }
+
+  virtual int available() {
+    TINY_GSM_YIELD();
+    if (!rx.size()) {
+      at->maintain(true);
+    }
+    return rx.size() + sock_available;
+  }
 };
 
 //============================================================================//
@@ -290,12 +328,12 @@ public:
     return false;
   }
 
-  void maintain() {
+  void maintain(bool ssl = false) {
     for (int mux = 0; mux < TINY_GSM_MUX_COUNT; mux++) {
       GsmClient* sock = sockets[mux];
       if (sock && sock->got_data) {
         sock->got_data = false;
-        sock->sock_available = modemGetAvailable(mux);
+        sock->sock_available = modemGetAvailable(mux, ssl);
       }
     }
     while (stream.available()) {
@@ -682,10 +720,18 @@ protected:
     return len; 
   }
 
-  size_t modemRead(size_t size, uint8_t mux) {
-    sendAT(GF("+QIRD="), 0, ',', 1, ',', mux, ',', size);
-    if (waitResponse(GF("+QIRD:"), GF("OK"), GF("ERROR")) != 1) {
-      return 0;
+  size_t modemRead(size_t size, uint8_t mux, bool ssl = false) {
+    if (ssl) {
+      // QSSLRECV=<cid>,<ssid>,<length>
+      sendAT(GF("+QSSLRECV=0,"), mux, ',', size);
+      if (waitResponse(GF("+QSSLRECV:"), GF("OK"), GF("ERROR")) != 1) {
+        return 0;
+      }
+    } else {
+      sendAT(GF("+QIRD="), 0, ',', 1, ',', mux, ',', size);
+      if (waitResponse(GF("+QIRD:"), GF("OK"), GF("ERROR")) != 1) {
+        return 0;
+      }
     }
     
     streamSkipUntil(','); // Skip addr + port
@@ -705,15 +751,21 @@ protected:
     return len;
   }
 
-  size_t modemGetAvailable(uint8_t mux) {
-    sendAT(GF("+QIRD="), 0, ',', 1, ',', mux, ',', 0);
+  size_t modemGetAvailable(uint8_t mux, bool ssl = false) {
     size_t result = 0;
-    if (waitResponse(GF("+QIRD:"), GF("OK"), GF("ERROR")) == 1) {
-      streamSkipUntil(','); // Skip addr + port
-      streamSkipUntil(','); // Skip type
-      result = stream.readStringUntil('\n').toInt();
-      DBG("### STILL:", mux, "has", result);
-      waitResponse();
+    if (ssl) {
+      // QSSLRECV=<cid>,<ssid>,<length>
+      modemRead(1500, mux, true); // We need to read eagerly, since we don't have a way to determine how much data there is
+    } else {
+      sendAT(GF("+QIRD="), 0, ',', 1, ',', mux, ',', 0);
+
+      if (waitResponse(GF("+QIRD:"), GF("OK"), GF("ERROR")) == 1) {
+        streamSkipUntil(','); // Skip addr + port
+        streamSkipUntil(','); // Skip type
+        result = stream.readStringUntil('\n').toInt();
+        DBG("### STILL:", mux, "has", result);
+        waitResponse();
+      }
     }
     
     if (!result) {
@@ -723,18 +775,19 @@ protected:
   }
 
   bool modemGetConnected(uint8_t mux) {
-    sendAT(GF("+QISTATE"));
+    sendAT(GF("+QSSLSTATE"));
 
     waitResponse();
     waitResponse();
-    if (waitResponse(GF("+QISTATE:")))
+    if (waitResponse(GF("+QSSLSTATE:")))
       return false;
 
     streamSkipUntil(','); // Skip mux
     streamSkipUntil(','); // Skip socket type
     streamSkipUntil(','); // Skip remote ip
     streamSkipUntil(','); // Skip remote port
-    String res = stream.readStringUntil('\n'); // socket state
+    String res = stream.readStringUntil(','); // socket state
+    streamSkipUntil('\n');
 
     waitResponse();
 
@@ -837,6 +890,26 @@ public:
           // DBG("### URC QIRDI:", mux);
           if (mux >= 0 && mux < TINY_GSM_MUX_COUNT && sockets[mux]) {
             sockets[mux]->got_data = true;
+          }
+          data = "";
+        } else if (data.endsWith(GF(GSM_NL "+QSSLURC:"))) {
+          stream.readStringUntil('\"');
+          String urc = stream.readStringUntil('\"');
+          stream.readStringUntil(',');
+          if (urc == "recv") {
+            int mux = stream.readStringUntil('\n').toInt();
+            // DBG("### QSSLURC RECV:", mux);
+            if (mux >= 0 && mux < TINY_GSM_MUX_COUNT && sockets[mux]) {
+              sockets[mux]->got_data = true;
+            }
+          } else if (urc == "closed") {
+            int mux = stream.readStringUntil('\n').toInt();
+            DBG("### QSSLURC CLOSE:", mux);
+            if (mux >= 0 && mux < TINY_GSM_MUX_COUNT && sockets[mux]) {
+              sockets[mux]->sock_connected = false;
+            }
+          } else {
+            stream.readStringUntil('\n');
           }
           data = "";
         }
