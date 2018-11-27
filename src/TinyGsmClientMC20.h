@@ -624,12 +624,20 @@ public:
 protected:
 
   bool modemConnect(const char* host, uint16_t port, uint8_t mux, bool ssl = false) {
-    int rsp;
-    sendAT(GF("+QIOPEN="), mux, ',', GF("\"TCP"), GF("\",\""), host, GF("\","), port);
-    if (waitResponse() != 1) return false;
+    if (ssl) {
+      // +QSSLOPEN=<ssid>,<ctxindex>,<ipaddr/domainname>,<port>,<connectmode>[,<timeout>]
+      sendAT(GF("+QSSLOPEN="), mux, ',', mux, GF(",\""), host, GF("\","), port, GF(",0")); // default timeout is 90 sec
+      if (waitResponse() != 1) return false;
+      if(waitResponse(90000L, GF(GSM_NL "+QSSLOPEN:")) != 1) return false; // Fix this. Need to account for the right MUX in the response.
+      int connectedMux = stream.readStringUntil(',').toInt();
+      int connStatus = stream.readStringUntil('\n').toInt();
+      if (connectedMux != mux || connStatus != 0) return false;
+    } else {
+      sendAT(GF("+QIOPEN="), mux, ',', GF("\"TCP"), GF("\",\""), host, GF("\","), port);
+      if (waitResponse() != 1) return false;
+      if(waitResponse(75000L, GF("CONNECT OK")) != 1) return false; // Fix this. Need to account for the right MUX in the response.
+    }
 
-    if(waitResponse(75000L, GF(", CONNECT OK")) != 1) return false; // Fix this. Need to account for the right MUX in the response.
-  
     return true;
   }
 
