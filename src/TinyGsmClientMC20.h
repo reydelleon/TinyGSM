@@ -756,7 +756,7 @@ protected:
 
     waitResponse();
     
-    DBG("### READ:", mux, ",", len);
+    // DBG("### READ:", mux, ",", len);
     return len;
   }
 
@@ -907,23 +907,22 @@ public:
           stream.readStringUntil(',');
           if (urc == "recv") {
             int mux = stream.readStringUntil('\n').toInt();
-            DBG("### QSSLURC RECV:", mux);
+            // DBG("### QSSLURC RECV:", mux);
             int free = sockets[mux]->rx.free();
             int len = modemRead(1500, mux, true);
 
             if (len > free) {
-              DBG("### Buffer overflow: ", len, "->", free);
+              // DBG("### Buffer overflow: ", len, "->", free);
             } else {
-              DBG("### Got: ", len, "->", free);
+              // DBG("### Got: ", len, "->", free);
             }
 
             if (len > sockets[mux]->available()) { // TODO
-              DBG("### Fewer characters received than expected: ", sockets[mux]->available(), " vs ", len);
+              // DBG("### Fewer characters received than expected: ", sockets[mux]->available(), " vs ", len);
             }
-            data = "";
           } else if (urc == "closed") {
             int mux = stream.readStringUntil('\n').toInt();
-            DBG("### QSSLURC CLOSE:", mux);
+            // DBG("### QSSLURC CLOSE:", mux);
             if (mux >= 0 && mux < TINY_GSM_MUX_COUNT && sockets[mux]) {
               sockets[mux]->sock_connected = false;
             }
