@@ -217,6 +217,14 @@ public:
     return sock_connected;
   }
 
+  virtual void stop() {
+    TINY_GSM_YIELD();
+    at->sendAT(GF("+QSSLCLOSE="), mux);
+    sock_connected = false;
+    at->waitResponse(GF("CLOSE OK"));
+    rx.clear();
+  }
+
   virtual size_t write(const uint8_t *buf, size_t size) {
     TINY_GSM_YIELD();
     at->maintain();
