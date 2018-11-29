@@ -204,7 +204,7 @@ class GsmClientSecure : public GsmClient
 public:
   GsmClientSecure() {}
 
-  GsmClientSecure(TinyGsmMC20& modem, uint8_t mux = 1)
+  GsmClientSecure(TinyGsmMC20& modem, uint8_t mux = 0)
     : GsmClient(modem, mux)
   {}
 
@@ -215,6 +215,56 @@ public:
     rx.clear();
     sock_connected = at->modemConnect(host, port, mux, true);
     return sock_connected;
+  }
+
+  virtual void stop() {
+    TINY_GSM_YIELD();
+    at->sendAT(GF("+QSSLCLOSE="), mux);
+    sock_connected = false;
+    at->waitResponse(GF("CLOSE OK"));
+    rx.clear();
+  }
+
+  virtual size_t write(const uint8_t *buf, size_t size) {
+    TINY_GSM_YIELD();
+    at->maintain();
+    return at->modemSend(buf, size, mux, true);
+  }
+
+  virtual int read(uint8_t *buf, size_t size) {
+    TINY_GSM_YIELD();
+    size_t cnt = 0;
+    while (cnt < size) {
+      size_t chunk = TinyGsmMin(size-cnt, rx.size());
+      if (chunk > 0) {
+        rx.get(buf, chunk);
+        buf += chunk;
+        cnt += chunk;
+        continue;
+      }
+
+      if (!rx.size() && sock_connected) {
+        at->maintain();
+        //break;
+      }
+    }
+    return cnt;
+  }
+
+  virtual int read() {
+    uint8_t c;
+    if (read(&c, 1) == 1) {
+      return c;
+    }
+    return -1;
+  }
+
+  virtual int available() {
+    TINY_GSM_YIELD();
+    if (!rx.size() && sock_connected) {
+      at->maintain();
+    }
+    return rx.size();
   }
 };
 
@@ -284,14 +334,17 @@ public:
     return false;
   }
 
-  void maintain() {
-    for (int mux = 0; mux < TINY_GSM_MUX_COUNT; mux++) {
-      GsmClient* sock = sockets[mux];
-      if (sock && sock->got_data) {
-        sock->got_data = false;
-        sock->sock_available = modemGetAvailable(mux);
+  void maintain(bool ssl = false) {
+    if (!ssl) {
+       for (int mux = 0; mux < TINY_GSM_MUX_COUNT; mux++) {
+        GsmClient* sock = sockets[mux];
+        if (sock && sock->got_data) {
+          sock->got_data = false;
+          sock->sock_available = modemGetAvailable(mux, ssl);
+        }
       }
     }
+
     while (stream.available()) {
       waitResponse(10, NULL, NULL);
     }
@@ -624,19 +677,34 @@ public:
 protected:
 
   bool modemConnect(const char* host, uint16_t port, uint8_t mux, bool ssl = false) {
-    int rsp;
-    sendAT(GF("+QIOPEN="), mux, ',', GF("\"TCP"), GF("\",\""), host, GF("\","), port);
-    if (waitResponse() != 1) return false;
+    if (ssl) {
+      // +QSSLOPEN=<ssid>,<ctxindex>,<ipaddr/domainname>,<port>,<connectmode>[,<timeout>]
+      sendAT(GF("+QSSLOPEN="), mux, ',', mux, GF(",\""), host, GF("\","), port, GF(",0")); // default timeout is 90 sec
+      if (waitResponse() != 1) return false;
+      if(waitResponse(90000L, GF(GSM_NL "+QSSLOPEN:")) != 1) return false; // Fix this. Need to account for the right MUX in the response.
+      int connectedMux = stream.readStringUntil(',').toInt();
+      int connStatus = stream.readStringUntil('\n').toInt();
+      if (connectedMux != mux || connStatus != 0) return false;
+    } else {
+      sendAT(GF("+QIOPEN="), mux, ',', GF("\"TCP"), GF("\",\""), host, GF("\","), port);
+      if (waitResponse() != 1) return false;
+      if(waitResponse(75000L, GF("CONNECT OK")) != 1) return false; // Fix this. Need to account for the right MUX in the response.
+    }
 
-    if(waitResponse(75000L, GF(", CONNECT OK")) != 1) return false; // Fix this. Need to account for the right MUX in the response.
-  
     return true;
   }
 
-  int modemSend(const void* buff, size_t len, uint8_t mux) {
-    sendAT(GF("+QISEND="), mux, ',', len);
-    if (waitResponse(GF(">")) != 1) {
-      return 0;
+  int modemSend(const void* buff, size_t len, uint8_t mux, bool ssl = false) {
+    if (ssl) {
+      sendAT(GF("+QSSLSEND="), mux, ',', len);
+      if (waitResponse(GF(">")) != 1) {
+        return 0;
+      }
+    } else {
+      sendAT(GF("+QISEND="), mux, ',', len);
+      if (waitResponse(GF(">")) != 1) {
+        return 0;
+      }
     }
 
     stream.write((uint8_t*)buff, len);
@@ -645,24 +713,34 @@ protected:
       return 0;
     }
 
-    while(true) {
-      sendAT(GF("+QISACK="), mux);
-      waitResponse(GF("+QISACK:"));
-      streamSkipUntil(',');
-      streamSkipUntil(',');
-      int unAckData = stream.readStringUntil('\n').toInt();
-      waitResponse();
-      if (unAckData == 0) break;
-      delay(200);
+    if (!ssl) {
+      while(true) {
+        sendAT(GF("+QISACK="), mux);
+        waitResponse(GF("+QISACK:"));
+        streamSkipUntil(',');
+        streamSkipUntil(',');
+        int unAckData = stream.readStringUntil('\n').toInt();
+        waitResponse();
+        if (unAckData == 0) break;
+        delay(200);
+      }
     }
 
     return len; 
   }
 
-  size_t modemRead(size_t size, uint8_t mux) {
-    sendAT(GF("+QIRD="), 0, ',', 1, ',', mux, ',', size);
-    if (waitResponse(GF("+QIRD:"), GF("OK"), GF("ERROR")) != 1) {
-      return 0;
+  size_t modemRead(size_t size, uint8_t mux, bool ssl = false) {
+    if (ssl) {
+      // QSSLRECV=<cid>,<ssid>,<length>
+      sendAT(GF("+QSSLRECV=0,"), mux, ',', size);
+      if (waitResponse(GF("+QSSLRECV:"), GF("OK"), GF("ERROR")) != 1) {
+        return 0;
+      }
+    } else {
+      sendAT(GF("+QIRD="), 0, ',', 1, ',', mux, ',', size);
+      if (waitResponse(GF("+QIRD:"), GF("OK"), GF("ERROR")) != 1) {
+        return 0;
+      }
     }
     
     streamSkipUntil(','); // Skip addr + port
@@ -678,19 +756,25 @@ protected:
 
     waitResponse();
     
-    DBG("### READ:", mux, ",", len);
+    // DBG("### READ:", mux, ",", len);
     return len;
   }
 
-  size_t modemGetAvailable(uint8_t mux) {
-    sendAT(GF("+QIRD="), 0, ',', 1, ',', mux, ',', 0);
+  size_t modemGetAvailable(uint8_t mux, bool ssl = false) {
     size_t result = 0;
-    if (waitResponse(GF("+QIRD:"), GF("OK"), GF("ERROR")) == 1) {
-      streamSkipUntil(','); // Skip addr + port
-      streamSkipUntil(','); // Skip type
-      result = stream.readStringUntil('\n').toInt();
-      DBG("### STILL:", mux, "has", result);
-      waitResponse();
+    if (ssl) {
+      // QSSLRECV=<cid>,<ssid>,<length>
+      return modemRead(1500, mux, true); // We need to read eagerly, since we don't have a way to determine how much data there is
+    } else {
+      sendAT(GF("+QIRD="), 0, ',', 1, ',', mux, ',', 0);
+
+      if (waitResponse(GF("+QIRD:"), GF("OK"), GF("ERROR")) == 1) {
+        streamSkipUntil(','); // Skip addr + port
+        streamSkipUntil(','); // Skip type
+        result = stream.readStringUntil('\n').toInt();
+        DBG("### STILL:", mux, "has", result);
+        waitResponse();
+      }
     }
     
     if (!result) {
@@ -700,18 +784,19 @@ protected:
   }
 
   bool modemGetConnected(uint8_t mux) {
-    sendAT(GF("+QISTATE"));
+    sendAT(GF("+QSSLSTATE"));
 
     waitResponse();
     waitResponse();
-    if (waitResponse(GF("+QISTATE:")))
+    if (waitResponse(GF("+QSSLSTATE:")))
       return false;
 
     streamSkipUntil(','); // Skip mux
     streamSkipUntil(','); // Skip socket type
     streamSkipUntil(','); // Skip remote ip
     streamSkipUntil(','); // Skip remote port
-    String res = stream.readStringUntil('\n'); // socket state
+    String res = stream.readStringUntil(','); // socket state
+    streamSkipUntil('\n');
 
     waitResponse();
 
@@ -815,6 +900,36 @@ public:
           if (mux >= 0 && mux < TINY_GSM_MUX_COUNT && sockets[mux]) {
             sockets[mux]->got_data = true;
           }
+          data = "";
+        } else if (data.endsWith(GF(GSM_NL "+QSSLURC:"))) {
+          stream.readStringUntil('\"');
+          String urc = stream.readStringUntil('\"');
+          stream.readStringUntil(',');
+          if (urc == "recv") {
+            int mux = stream.readStringUntil('\n').toInt();
+            // DBG("### QSSLURC RECV:", mux);
+            int free = sockets[mux]->rx.free();
+            int len = modemRead(1500, mux, true);
+
+            if (len > free) {
+              // DBG("### Buffer overflow: ", len, "->", free);
+            } else {
+              // DBG("### Got: ", len, "->", free);
+            }
+
+            if (len > sockets[mux]->available()) { // TODO
+              // DBG("### Fewer characters received than expected: ", sockets[mux]->available(), " vs ", len);
+            }
+          } else if (urc == "closed") {
+            int mux = stream.readStringUntil('\n').toInt();
+            // DBG("### QSSLURC CLOSE:", mux);
+            if (mux >= 0 && mux < TINY_GSM_MUX_COUNT && sockets[mux]) {
+              sockets[mux]->sock_connected = false;
+            }
+          } else {
+            stream.readStringUntil('\n');
+          }
+          data = "";
         }
       }
     } while (millis() - startMillis < timeout);

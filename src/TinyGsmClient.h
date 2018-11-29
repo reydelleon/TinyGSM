@@ -49,6 +49,7 @@
   #include <TinyGsmClientMC20.h>
   typedef TinyGsmMC20 TinyGsm;
   typedef TinyGsmMC20::GsmClient TinyGsmClient;
+  typedef TinyGsmMC20::GsmClientSecure TinyGsmClientSecure;
 
 #elif defined(TINY_GSM_MODEM_A6) || defined(TINY_GSM_MODEM_A7)
   #define TINY_GSM_MODEM_HAS_GPRS
