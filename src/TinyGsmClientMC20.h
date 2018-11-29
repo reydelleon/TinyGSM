@@ -225,8 +225,7 @@ public:
 
   virtual int read(uint8_t *buf, size_t size) {
     TINY_GSM_YIELD();
-    at->maintain(true);
-    size_t cnt = 0;  
+    size_t cnt = 0;
     while (cnt < size) {
       size_t chunk = TinyGsmMin(size-cnt, rx.size());
       if (chunk > 0) {
@@ -235,11 +234,10 @@ public:
         cnt += chunk;
         continue;
       }
-      at->maintain(true);
-      if (sock_available > 0) {
-        sock_available -= at->modemRead(TinyGsmMin((uint16_t)rx.free(), sock_available), mux, true);
-      } else {
-        break;
+
+      if (!rx.size() && sock_connected) {
+        at->maintain();
+        //break;
       }
     }
     return cnt;
@@ -255,10 +253,10 @@ public:
 
   virtual int available() {
     TINY_GSM_YIELD();
-    if (!rx.size()) {
-      at->maintain(true);
+    if (!rx.size() && sock_connected) {
+      at->maintain();
     }
-    return rx.size() + sock_available;
+    return rx.size();
   }
 };
 
@@ -329,13 +327,16 @@ public:
   }
 
   void maintain(bool ssl = false) {
-    for (int mux = 0; mux < TINY_GSM_MUX_COUNT; mux++) {
-      GsmClient* sock = sockets[mux];
-      if (sock && sock->got_data) {
-        sock->got_data = false;
-        sock->sock_available = modemGetAvailable(mux, ssl);
+    if (!ssl) {
+       for (int mux = 0; mux < TINY_GSM_MUX_COUNT; mux++) {
+        GsmClient* sock = sockets[mux];
+        if (sock && sock->got_data) {
+          sock->got_data = false;
+          sock->sock_available = modemGetAvailable(mux, ssl);
+        }
       }
     }
+
     while (stream.available()) {
       waitResponse(10, NULL, NULL);
     }
@@ -755,7 +756,7 @@ protected:
     size_t result = 0;
     if (ssl) {
       // QSSLRECV=<cid>,<ssid>,<length>
-      modemRead(1500, mux, true); // We need to read eagerly, since we don't have a way to determine how much data there is
+      return modemRead(1500, mux, true); // We need to read eagerly, since we don't have a way to determine how much data there is
     } else {
       sendAT(GF("+QIRD="), 0, ',', 1, ',', mux, ',', 0);
 
@@ -898,10 +899,20 @@ public:
           stream.readStringUntil(',');
           if (urc == "recv") {
             int mux = stream.readStringUntil('\n').toInt();
-            // DBG("### QSSLURC RECV:", mux);
-            if (mux >= 0 && mux < TINY_GSM_MUX_COUNT && sockets[mux]) {
-              sockets[mux]->got_data = true;
+            DBG("### QSSLURC RECV:", mux);
+            int free = sockets[mux]->rx.free();
+            int len = modemRead(1500, mux, true);
+
+            if (len > free) {
+              DBG("### Buffer overflow: ", len, "->", free);
+            } else {
+              DBG("### Got: ", len, "->", free);
             }
+
+            if (len > sockets[mux]->available()) { // TODO
+              DBG("### Fewer characters received than expected: ", sockets[mux]->available(), " vs ", len);
+            }
+            data = "";
           } else if (urc == "closed") {
             int mux = stream.readStringUntil('\n').toInt();
             DBG("### QSSLURC CLOSE:", mux);
