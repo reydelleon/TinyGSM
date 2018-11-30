@@ -665,7 +665,32 @@ public:
    * Location functions
    */
 
-  String getGsmLocation() TINY_GSM_ATTR_NOT_AVAILABLE;
+  bool activateGnss() {
+    sendAT(GF("+QGNSSC?"));
+    waitResponse(GF(GSM_NL "+QGNSSC:"));
+    int mode = stream.readStringUntil('\n').toInt();
+
+    if (mode == 1) {
+      return true;
+    }
+
+    sendAT(GF("+QGNSSC=1"));
+    return waitResponse() == 1 ? true : false;
+  }
+
+  String getGnssLocation() {
+    //+QGNSSRD: $GNGGA,042415.000,3809.0614,N,08539.3063,W,1,8,0.96,151.6,M,-33.1,M,,*7E
+    sendAT(GF("+QGNSSRD=\"NMEA/GGA\""));
+    if (waitResponse(1000L, GF(GSM_NL "+QGNSSRD:")) != 1) {
+      return "";
+    }
+
+    streamSkipUntil(',');
+    String res = stream.readStringUntil('\n');
+    waitResponse();
+    res.trim();
+    return res;
+  }
 
   /*
    * Battery functions
