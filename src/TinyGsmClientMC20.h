@@ -54,7 +54,6 @@ class TinyGsmMC20
 //============================================================================//
 //============================================================================//
 
-
 public:
 
 class GsmClient : public Client
@@ -511,6 +510,14 @@ public:
     return false;
   }
 
+  bool waitForGpsTimeSync(unsigned long timeout = 120000L) {
+    for (unsigned long start = millis(); millis() - start < timeout; ) {
+      if (gpsIsTimeSynched()) return true;
+      delay(250);
+    }
+    return false;
+  }
+
   /*
    * WiFi functions
    */
@@ -665,31 +672,83 @@ public:
    * Location functions
    */
 
-  bool activateGnss() {
+  bool gpsIsOn() {
     sendAT(GF("+QGNSSC?"));
     waitResponse(GF(GSM_NL "+QGNSSC:"));
     int mode = stream.readStringUntil('\n').toInt();
+    waitResponse();
 
-    if (mode == 1) {
-      return true;
-    }
+    return mode == 1;
+  }
+
+  bool gpsActivate() {
+    if (gpsIsOn()) return true;
 
     sendAT(GF("+QGNSSC=1"));
     return waitResponse() == 1 ? true : false;
   }
 
-  String getGnssLocation() {
-    //+QGNSSRD: $GNGGA,042415.000,3809.0614,N,08539.3063,W,1,8,0.96,151.6,M,-33.1,M,,*7E
-    sendAT(GF("+QGNSSRD=\"NMEA/GGA\""));
-    if (waitResponse(1000L, GF(GSM_NL "+QGNSSRD:")) != 1) {
+  bool gpsDeactivate() {
+    if (!gpsIsOn()) return true;
+
+    sendAT(GF("+QGNSSC=0"));
+    return waitResponse() == 1 ? true : false;
+  }
+
+  String getGpsData() {
+    sendAT(GF("+QGNSSRD?"));
+    if (waitResponse(GF(GSM_NL "+QGNSSRD:")) != 1) {
       return "";
     }
 
-    streamSkipUntil(',');
     String res = stream.readStringUntil('\n');
+    for (int i = 0; i < 9; i++) {
+      res += "\r\n" + stream.readStringUntil('\n');
+    }
+
     waitResponse();
     res.trim();
     return res;
+  }
+
+  bool gpsEnableEPO() {
+    if (!waitForNetwork()) return false;
+    if (!waitForGpsTimeSync()) return false;
+
+    sendAT(GF("+QGNSSEPO=1"));
+    if (waitResponse() != 1) return false;
+
+    return true;
+  }
+
+  bool gpsDisableEPO() {
+    sendAT(GF("+QGNSSEPO=0"));
+    if (waitResponse() != 1) return false;
+
+    return true;
+  }
+
+  bool gpsTriggerEPO() {
+    sendAT(GF("+QGEPOAID"));
+    if (waitResponse() != 1) return false;
+
+    return true;
+  }
+
+  bool gpsSetRefLocation(const char lat[], const char lng[]) {
+    sendAT(GF("+QGREFLOC="), GF(lat), ',', GF(lng));
+    if (waitResponse() != 1) return false;
+
+    return true;
+  }
+
+  bool gpsIsTimeSynched() {
+    sendAT(GF("+QGNSSTS?"));
+    if (waitResponse(GF(GSM_NL "+QGNSSTS:")) != 1) return false;
+
+    int status = stream.readStringUntil('\n').toInt();
+
+    return status == 1;
   }
 
   /*
