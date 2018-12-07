@@ -68,7 +68,7 @@ public:
     init(&modem, mux);
   }
 
-  bool init(TinyGsmMC20* modem, uint8_t mux = 0) {
+  bool init(TinyGsmMC20 *modem, uint8_t mux = 0) {
     this->at = modem;
     this->mux = mux;
     sock_available = 0;
@@ -183,7 +183,7 @@ public:
   String remoteIP() TINY_GSM_ATTR_NOT_IMPLEMENTED;
 
 private:
-  TinyGsmMC20*  at;
+  TinyGsmMC20   *at;
   uint8_t       mux;
   uint16_t      sock_available;
   bool          sock_connected;
@@ -336,7 +336,7 @@ public:
   void maintain(bool ssl = false) {
     if (!ssl) {
        for (int mux = 0; mux < TINY_GSM_MUX_COUNT; mux++) {
-        GsmClient* sock = sockets[mux];
+        GsmClient *sock = sockets[mux];
         if (sock && sock->got_data) {
           sock->got_data = false;
           sock->sock_available = modemGetAvailable(mux, ssl);
@@ -526,14 +526,14 @@ public:
    * GPRS functions
    */
 
-  bool gprsConnect(const char* apn, const char* user = NULL, const char* pwd = NULL) {
+  bool gprsConnect(const char *apn, const char *user = NULL, const char *pwd = NULL, unsigned long timeout = 150000L) {
     // Select GPRS as the bearer service for the connections
     sendAT(GF("+QICSGP=1,"), "\"", apn, GF("\",\""), user, GF("\",\""), pwd, "\"");
     if (waitResponse() != 1) return false;
 
     if (getSimStatus() != 1) return false;
 
-    if (!waitForNetwork()) return false;
+    if (!waitForNetwork(timeout)) return false;
     
     // Activate PDP context (Next 3 steps; must be executed in order and together)
     sendAT(GF("+QIREGAPP"));
@@ -567,10 +567,9 @@ public:
     }
     int res = stream.readStringUntil('\n').toInt();
     waitResponse();
-    if (res != 1)
-      return false;
-
-    return localIP() != 0;
+    if (res != 1) return false;
+      
+    return true;
   }
 
   String getLocalIP() {
@@ -642,7 +641,7 @@ public:
     return waitResponse(60000L) == 1;
   }
 
-  bool sendSMS_UTF16(const String& number, const void* text, size_t len) {
+  bool sendSMS_UTF16(const String& number, const void *text, size_t len) {
     sendAT(GF("+CMGF=1"));
     waitResponse();
     sendAT(GF("+CSMP=17,167,0,8"));
@@ -702,7 +701,7 @@ public:
     }
 
     String res = stream.readStringUntil('\n');
-    for (int i = 0; i < 9; i++) {
+    for (int i = 0; i < 8; i++) {
       res += "\r\n" + stream.readStringUntil('\n');
     }
 
@@ -760,7 +759,7 @@ public:
 
 protected:
 
-  bool modemConnect(const char* host, uint16_t port, uint8_t mux, bool ssl = false) {
+  bool modemConnect(const char *host, uint16_t port, uint8_t mux, bool ssl = false) {
     if (ssl) {
       // +QSSLOPEN=<ssid>,<ctxindex>,<ipaddr/domainname>,<port>,<connectmode>[,<timeout>]
       sendAT(GF("+QSSLOPEN="), mux, ',', mux, GF(",\""), host, GF("\","), port, GF(",0")); // default timeout is 90 sec
@@ -778,7 +777,7 @@ protected:
     return true;
   }
 
-  int modemSend(const void* buff, size_t len, uint8_t mux, bool ssl = false) {
+  int modemSend(const void *buff, size_t len, uint8_t mux, bool ssl = false) {
     if (ssl) {
       sendAT(GF("+QSSLSEND="), mux, ',', len);
       if (waitResponse(GF(">")) != 1) {
@@ -1047,7 +1046,7 @@ public:
   Stream&       stream;
 
 protected:
-  GsmClient*    sockets[TINY_GSM_MUX_COUNT];
+  GsmClient    *sockets[TINY_GSM_MUX_COUNT];
 };
 
 #endif
