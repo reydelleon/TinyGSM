@@ -202,10 +202,18 @@ TINY_GSM_MODEM_SET_BAUD_IPR()
 
 TINY_GSM_MODEM_TEST_AT()
 
-TINY_GSM_MODEM_MAINTAIN_CHECK_SOCKS()
-
-  bool factoryDefault() {  // these commands aren't supported
-    return false;
+  void maintain() {
+    for (int mux = 0; mux < TINY_GSM_MUX_COUNT; mux++) {
+      GsmClient* sock = sockets[mux];
+      if (sock && sock->got_data) {
+        if (modemRead((uint16_t)(sock->rx.free()), mux)) {
+          sock->got_data = false;
+        }
+      }
+    }
+    while (stream.available()) {
+      waitResponse(15, NULL, NULL);
+    }
   }
 
 TINY_GSM_MODEM_GET_INFO_ATI()
@@ -364,107 +372,28 @@ TINY_GSM_MODEM_WAIT_FOR_NETWORK()
    * GPRS functions
    */
 
-  bool gprsConnect(const char* apn, const char* user = NULL, const char* pwd = NULL ) {
-    // gprsDisconnect();
+  bool gprsConnect(const char* apn, const char* user = NULL, const char* pwd = NULL) {
+      sendAT(GF("+CNACT?"));
+      waitResponse(GF(GSM_NL "+CNACT:"));
 
-    sendAT(GF("+CNACT?"));
-    waitResponse(GF(GSM_NL "+CNACT:"));
+      int status = stream.readStringUntil(',').toInt();
+      waitResponse();
 
-    int status = stream.readStringUntil(',').toInt();
-    waitResponse();
+      if (status == 1) { // We're already connected
+        return true;
+      }
 
-    if (status == 1) { // We're already connected
-      return true;
-    }
-
-    if (status == 2) {// We're in the process of connecting
-      return false;
-    }
-    
-    // If status is 0 then we're not connected
-    sendAT(GF("+CNACT=1,"), apn);
-    if (waitResponse() != 1) {
-      return false;
-    }
+      if (status == 2) { // We're in the process of connecting
+        return false;
+      }
+      
+      // If status is 0 then we're not connected
+      sendAT(GF("+CNACT=1,"), apn);
+      if (waitResponse() != 1) {
+        return false;
+      }
 
     return true;
-    
-    // Set the Bearer for the IP
-    // sendAT(GF("+SAPBR=3,1,\"Contype\",\"GPRS\""));  // Set the connection type to GPRS
-    // waitResponse();
-
-    // sendAT(GF("+SAPBR=3,1,\"APN\",\""), apn, '"');  // Set the APN
-    // waitResponse();
-
-    // if (user && strlen(user) > 0) {
-    //   sendAT(GF("+SAPBR=3,1,\"USER\",\""), user, '"');  // Set the user name
-    //   waitResponse();
-    // }
-    // if (pwd && strlen(pwd) > 0) {
-    //   sendAT(GF("+SAPBR=3,1,\"PWD\",\""), pwd, '"');  // Set the password
-    //   waitResponse();
-    // }
-
-    // // Define the PDP context
-    // sendAT(GF("+CGDCONT=1,\"IP\",\""), apn, '"');
-    // waitResponse();
-
-    // // Activate the PDP context
-    // sendAT(GF("+CGACT=1,1"));
-    // waitResponse(60000L);
-
-    // // Open the definied GPRS bearer context
-    // sendAT(GF("+SAPBR=1,1"));
-    // waitResponse(85000L);
-    // // Query the GPRS bearer context status
-    // sendAT(GF("+SAPBR=2,1"));
-    // if (waitResponse(30000L) != 1)
-    //   return false;
-
-    // // Attach to GPRS
-    // sendAT(GF("+CGATT=1"));
-    // if (waitResponse(60000L) != 1)
-    //   return false;
-
-    // // TODO: wait AT+CGATT?
-
-    // // Set to multi-IP
-    // sendAT(GF("+CIPMUX=1"));
-    // if (waitResponse() != 1) {
-    //   return false;
-    // }
-
-    // // Put in "quick send" mode (thus no extra "Send OK")
-    // sendAT(GF("+CIPQSEND=1"));
-    // if (waitResponse() != 1) {
-    //   return false;
-    // }
-
-    // // Set to get data manually
-    // sendAT(GF("+CIPRXGET=1"));
-    // if (waitResponse() != 1) {
-    //   return false;
-    // }
-
-    // // Start Task and Set APN, USER NAME, PASSWORD
-    // sendAT(GF("+CSTT=\""), apn, GF("\",\""), user, GF("\",\""), pwd, GF("\""));
-    // if (waitResponse(60000L) != 1) {
-    //   return false;
-    // }
-
-    // // Bring Up Wireless Connection with GPRS or CSD
-    // sendAT(GF("+CIICR"));
-    // if (waitResponse(60000L) != 1) {
-    //   return false;
-    // }
-
-    // // Get Local IP Address, only assigned after connection
-    // sendAT(GF("+CIFSR;E0"));
-    // if (waitResponse(10000L) != 1) {
-    //   return false;
-    // }
-
-    // return true;
   }
 
   bool gprsDisconnect() {
@@ -474,21 +403,11 @@ TINY_GSM_MODEM_WAIT_FOR_NETWORK()
     }
 
     return true;
-
-    // Shut the TCP/IP connection
-    // sendAT(GF("+CIPSHUT"));
-    // if (waitResponse(60000L) != 1)
-    //   return false;
-
-    // sendAT(GF("+CGATT=0"));  // Deactivate the bearer context
-    // if (waitResponse(60000L) != 1)
-    //   return false;
-
-    // return true;
   }
 
   bool isGprsConnected() {
     DBG("### Checking GPRS network status");
+    
     sendAT(GF("+CNACT?"));
     if (waitResponse(GF(GSM_NL "+CNACT:")) != 1) {
       DBG("### Failed to retrieve GPRS connection status");
@@ -501,23 +420,8 @@ TINY_GSM_MODEM_WAIT_FOR_NETWORK()
       DBG("### Device not connected to GPRS network. Error code: ", status);
       return false;
     }
-
+    
     return true;
-
-    // sendAT(GF("+CGATT?"));
-    // if (waitResponse(GF(GSM_NL "+CGATT:")) != 1) {
-    //   return false;
-    // }
-    // int res = stream.readStringUntil('\n').toInt();
-    // waitResponse();
-    // if (res != 1)
-    //   return false;
-
-    // sendAT(GF("+CIFSR;E0")); // Another option is to use AT+CGPADDR=1
-    // if (waitResponse() != 1)
-    //   return false;
-
-    // return true;
   }
 
   /*
@@ -530,16 +434,6 @@ TINY_GSM_MODEM_WAIT_FOR_NETWORK()
     streamSkipUntil('\"');
     String res = stream.readStringUntil('\"');
     return res;
-
-    // sendAT(GF("+CIFSR;E0"));
-    // String res;
-    // if (waitResponse(10000L, res) != 1) {
-    //   return "";
-    // }
-    // res.replace(GSM_NL "OK" GSM_NL, "");
-    // res.replace(GSM_NL, "");
-    // res.trim();
-    // return res;
   }
 
   IPAddress localIP() {
@@ -926,91 +820,55 @@ protected:
     }
 
     return stream.readStringUntil('\n').toInt();
-
-    // sendAT(GF("+CIPSEND="), mux, ',', len);
-    // if (waitResponse(GF(">")) != 1) {
-    //   return 0;
-    // }
-    // stream.write((uint8_t*)buff, len);
-    // stream.flush();
-    // if (waitResponse(GF(GSM_NL "DATA ACCEPT:")) != 1) {
-    //   return 0;
-    // }
-    // streamSkipUntil(','); // Skip mux
-    // return stream.readStringUntil('\n').toInt();
   }
 
   size_t modemRead(size_t size, uint8_t mux) {
-#ifdef TINY_GSM_USE_HEX
-    sendAT(GF("+CIPRXGET=3,"), mux, ',', size);
-    if (waitResponse(GF("+CIPRXGET:")) != 1) {
+    DBG("### Attempting to read data from the connection");
+    sendAT(GF("+CARECV="), mux, GF(","), size);
+    if(waitResponse(GF("+CARECV:")) != 1) {
+      DBG("### Failed to read data from the connection");
       return 0;
     }
-#else
-    sendAT(GF("+CIPRXGET=2,"), mux, ',', size);
-    if (waitResponse(GF("+CIPRXGET:")) != 1) {
-      return 0;
-    }
-#endif
-    streamSkipUntil(','); // Skip Rx mode 2/normal or 3/HEX
-    streamSkipUntil(','); // Skip mux
-    size_t len_requested = stream.readStringUntil(',').toInt();
-    //  ^^ Requested number of data bytes (1-1460 bytes)to be read
-    size_t len_confirmed = stream.readStringUntil('\n').toInt();
-    // ^^ Confirmed number of data bytes to be read, which may be less than requested.
-    // 0 indicates that no data can be read.
-    // This is actually be the number of bytes that will be remaining after the read
-    for (size_t i=0; i<len_requested; i++) {
+
+    streamSkipUntil(','); // Ignore mux
+    size_t len_received = stream.readStringUntil('\n').toInt();
+
+    for (size_t i = 0; i < size; i++)
+    {
       uint32_t startMillis = millis();
-#ifdef TINY_GSM_USE_HEX
-      while (stream.available() < 2 && (millis() - startMillis < sockets[mux]->_timeout)) { TINY_GSM_YIELD(); }
-      char buf[4] = { 0, };
-      buf[0] = stream.read();
-      buf[1] = stream.read();
-      char c = strtol(buf, NULL, 16);
-#else
       while (!stream.available() && (millis() - startMillis < sockets[mux]->_timeout)) { TINY_GSM_YIELD(); }
       char c = stream.read();
-#endif
       sockets[mux]->rx.put(c);
     }
-    DBG("### READ:", len_requested, "from", mux);
-    // sockets[mux]->sock_available = modemGetAvailable(mux);
-    sockets[mux]->sock_available = len_confirmed;
+    
+    DBG("### READ:", size, "from", mux);
+    sockets[mux]->sock_available = len_received;
     waitResponse();
-    return len_requested;
+    return size;
   }
 
-  size_t modemGetAvailable(uint8_t mux) {
-    sendAT(GF("+CIPRXGET=4,"), mux);
-    size_t result = 0;
-    if (waitResponse(GF("+CIPRXGET:")) == 1) {
-      streamSkipUntil(','); // Skip mode 4
-      streamSkipUntil(','); // Skip mux
-      result = stream.readStringUntil('\n').toInt();
-      waitResponse();
-    }
-    DBG("### Available:", result, "on", mux);
-    if (!result) {
-      sockets[mux]->sock_connected = modemGetConnected(mux);
-    }
-    return result;
-  }
+  // size_t modemGetAvailable(uint8_t mux) {
+  //   sendAT(GF("+CIPRXGET=4,"), mux);
+  //   size_t result = 0;
+  //   if (waitResponse(GF("+CIPRXGET:")) == 1) {
+  //     streamSkipUntil(','); // Skip mode 4
+  //     streamSkipUntil(','); // Skip mux
+  //     result = stream.readStringUntil('\n').toInt();
+  //     waitResponse();
+  //   }
+  //   DBG("### Available:", result, "on", mux);
+  //   if (!result) {
+  //     sockets[mux]->sock_connected = modemGetConnected(mux);
+  //   }
+  //   return result;
+  // }
 
   bool modemGetConnected(uint8_t mux) {
     sendAT(GF("+CNACT?"));
-    if (waitResponse(GF("1"), GF("0"), GF("2")) != 1) {
-      return false;
-    }
-
+    uint8_t res = waitResponse(GF("1"), GF("0"), GF("2"));
+   
     waitResponse();
-
-    return true;
-
-    // sendAT(GF("+CIPSTATUS="), mux);
-    // int res = waitResponse(GF(",\"CONNECTED\""), GF(",\"CLOSED\""), GF(",\"CLOSING\""), GF(",\"INITIAL\""));
-    // waitResponse();
-    // return 1 == res;
+    return 1 == res;
   }
 
 public:
