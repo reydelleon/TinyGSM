@@ -812,35 +812,30 @@ protected:
     DBG("### Attempting to read data from the connection");
     sendAT(GF("+CARECV="), mux, GF(","), size);
     if(waitResponse(GF("+CARECV:")) != 1) {
-      DBG("### Failed to read data from the connection");
+      // DBG("### Failed to read data from the connection");
       return 0;
     }
 
     streamSkipUntil(','); // Ignore mux
     size_t len_received = stream.readStringUntil('\n').toInt();
 
-    for (size_t i = 0; i < len_received; i++)
+    for (size_t i = 0; i < size; i++)
     {
       uint32_t startMillis = millis();
       while (!stream.available() && (millis() - startMillis < sockets[mux]->_timeout)) { TINY_GSM_YIELD(); }
       char c = stream.read();
       sockets[mux]->rx.put(c);
     }
+
+    waitResponse();
     
     DBG("### READ:", size, "from", mux);
     sockets[mux]->sock_available = len_received;
-    waitResponse();
-    return len_received;
+    return size;
   }
 
   size_t modemGetAvailable(uint8_t mux) {
-    uint16_t len = modemRead(1460, mux); // 1460 being the limit of the device buffer
-    
-    if (!len) {
-      sockets[mux]->sock_connected = modemGetConnected(mux);
-    }
-
-    return len;
+    return modemRead(1460, mux); // 1460 being the limit of the device buffer
   }
 
   bool modemGetConnected(uint8_t mux) {
@@ -906,7 +901,7 @@ TINY_GSM_MODEM_STREAM_UTILITIES()
           } else {
             data += mode;
           }
-        } else if (data.endsWith(GF(GSM_NL "+RECEIVE:"))) {
+        } /* else if (data.endsWith(GF(GSM_NL "+CARECV:"))) {
           int mux = stream.readStringUntil(',').toInt();
           int len = stream.readStringUntil('\n').toInt();
           if (mux >= 0 && mux < TINY_GSM_MUX_COUNT && sockets[mux]) {
@@ -924,7 +919,7 @@ TINY_GSM_MODEM_STREAM_UTILITIES()
           }
           data = "";
           DBG("### Closed: ", mux);
-        }
+        } */
       }
     } while (millis() - startMillis < timeout_ms);
 finish:

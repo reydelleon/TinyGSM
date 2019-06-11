@@ -426,7 +426,7 @@ String TinyGsmDecodeHex16bit(String &instr) {
 
 
 // Keeps listening for modem URC's and iterates through sockets
-// to see if any data is avaiable
+// to see if any data is available
 #define TINY_GSM_MODEM_MAINTAIN_CHECK_SOCKS() \
   void maintain() { \
     for (int mux = 0; mux < TINY_GSM_MUX_COUNT; mux++) { \
