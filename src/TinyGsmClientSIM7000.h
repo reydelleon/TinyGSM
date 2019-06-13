@@ -100,7 +100,7 @@ TINY_GSM_CLIENT_CONNECT_OVERLOADS()
       rx.clear();
       at->maintain();
     }
-    at->sendAT(GF("+CIPCLOSE="), mux);
+    at->sendAT(GF("+CACLOSE="), mux);
     sock_connected = false;
     at->waitResponse();
   }
@@ -367,7 +367,7 @@ TINY_GSM_MODEM_WAIT_FOR_NETWORK()
     gprsDisconnect();
 
     sendAT(GF("+CNACT=1,"), apn); // Activate network
-    waitResponse();
+    waitResponse(60000L);
     waitResponse(5000L, GF("+APP PDP: ACTIVE")); // Try to return only after PDP has been activated
 
     return true;
@@ -453,8 +453,8 @@ TINY_GSM_MODEM_WAIT_FOR_NETWORK()
   bool gprsDisconnect() {
     // Shut the TCP/IP connection
     sendAT(GF("+CNACT=0"));
-    if (waitResponse(60000L) != 1)
-      return false;
+    if (waitResponse(60000L) != 1) return false;
+    waitResponse(5000L, GF("+APP PDP: DEACTIVE")); // Try to return only after PDP has been deactivated
 
     return true;
   }
@@ -477,14 +477,10 @@ TINY_GSM_MODEM_WAIT_FOR_NETWORK()
    */
 
   String getLocalIP() {
-    sendAT(GF("+CIFSR;E0"));
-    String res;
-    if (waitResponse(10000L, res) != 1) {
-      return "";
-    }
-    res.replace(GSM_NL "OK" GSM_NL, "");
-    res.replace(GSM_NL, "");
-    res.trim();
+    DBG("### Getting local IP");
+    sendAT(GF("+CNACT?"));
+    streamSkipUntil('\"');
+    String res = stream.readStringUntil('\"');
     return res;
   }
 
@@ -853,9 +849,12 @@ protected:
       return 0;
     }
     
+    waitResponse(5000L, GF("+CASEND:"));
     streamSkipUntil(','); // Skip mux
     uint8_t result = stream.readStringUntil(',').toInt();
     uint16_t sentLen = stream.readStringUntil('\n').toInt();
+    waitResponse(10000L, GF("+CASTATE:")); // Tryng to catch the pesky URC
+    streamSkipUntil('\n');
     
     DBG("### Sent ", sentLen, " bytes of data. Result code: ", result);
 
@@ -894,6 +893,7 @@ protected:
     // ^^ Confirmed number of data bytes to be read, which may be less than requested.
     // 0 indicates that no data can be read.
     // This is actually be the number of bytes that will be remaining after the read
+
     for (size_t i=0; i<len_requested; i++) {
       uint32_t startMillis = millis();
 #ifdef TINY_GSM_USE_HEX
@@ -916,19 +916,27 @@ protected:
   }
 
   size_t modemGetAvailable(uint8_t mux) {
-    sendAT(GF("+CIPRXGET=4,"), mux);
-    size_t result = 0;
-    if (waitResponse(GF("+CIPRXGET:")) == 1) {
-      streamSkipUntil(','); // Skip mode 4
-      streamSkipUntil(','); // Skip mux
-      result = stream.readStringUntil('\n').toInt();
-      waitResponse();
-    }
-    DBG("### Available:", result, "on", mux);
-    if (!result) {
+    uint16_t len = modemRead(1460, mux); // 1460 being the limit of the device buffer
+    if (!len) {
       sockets[mux]->sock_connected = modemGetConnected(mux);
     }
-    return result;
+
+    DBG("### Available:", len, "on", mux);
+    return len;
+
+    // sendAT(GF("+CIPRXGET=4,"), mux);
+    // size_t result = 0;
+    // if (waitResponse(GF("+CIPRXGET:")) == 1) {
+    //   streamSkipUntil(','); // Skip mode 4
+    //   streamSkipUntil(','); // Skip mux
+    //   result = stream.readStringUntil('\n').toInt();
+    //   waitResponse();
+    // }
+    // DBG("### Available:", result, "on", mux);
+    // if (!result) {
+    //   sockets[mux]->sock_connected = modemGetConnected(mux);
+    // }
+    // return result;
   }
 
   bool modemGetConnected(uint8_t mux) {
@@ -937,7 +945,7 @@ protected:
    
     waitResponse();
     return 1 == res;
-    
+
     // sendAT(GF("+CIPSTATUS="), mux);
     // int res = waitResponse(GF(",\"CONNECTED\""), GF(",\"CLOSED\""), GF(",\"CLOSING\""), GF(",\"INITIAL\""));
     // waitResponse();
@@ -999,7 +1007,7 @@ TINY_GSM_MODEM_STREAM_UTILITIES()
           } else {
             data += mode;
           }
-        } else if (data.endsWith(GF(GSM_NL "+RECEIVE:"))) {
+        } else if (data.endsWith(GF(GSM_NL "+CARECV:"))) {
           int mux = stream.readStringUntil(',').toInt();
           int len = stream.readStringUntil('\n').toInt();
           if (mux >= 0 && mux < TINY_GSM_MUX_COUNT && sockets[mux]) {
