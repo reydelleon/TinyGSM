@@ -874,45 +874,65 @@ protected:
   }
 
   size_t modemRead(size_t size, uint8_t mux) {
-#ifdef TINY_GSM_USE_HEX
-    sendAT(GF("+CIPRXGET=3,"), mux, ',', size);
-    if (waitResponse(GF("+CIPRXGET:")) != 1) {
-      return 0;
-    }
-#else
-    sendAT(GF("+CIPRXGET=2,"), mux, ',', size);
-    if (waitResponse(GF("+CIPRXGET:")) != 1) {
-      return 0;
-    }
-#endif
-    streamSkipUntil(','); // Skip Rx mode 2/normal or 3/HEX
-    streamSkipUntil(','); // Skip mux
-    size_t len_requested = stream.readStringUntil(',').toInt();
-    //  ^^ Requested number of data bytes (1-1460 bytes)to be read
-    size_t len_confirmed = stream.readStringUntil('\n').toInt();
-    // ^^ Confirmed number of data bytes to be read, which may be less than requested.
-    // 0 indicates that no data can be read.
-    // This is actually be the number of bytes that will be remaining after the read
+    sendAT(GF("+CARECV="), mux, GF(","), size);
+    waitResponse(5000L, GF("+CARECV:"));
 
-    for (size_t i=0; i<len_requested; i++) {
+    streamSkipUntil(','); // Skip mux
+    uint16_t recvLen = stream.readStringUntil('\n').toInt();
+
+    for (size_t i = 0; i < recvLen; i++) {
       uint32_t startMillis = millis();
-#ifdef TINY_GSM_USE_HEX
-      while (stream.available() < 2 && (millis() - startMillis < sockets[mux]->_timeout)) { TINY_GSM_YIELD(); }
-      char buf[4] = { 0, };
-      buf[0] = stream.read();
-      buf[1] = stream.read();
-      char c = strtol(buf, NULL, 16);
-#else
       while (!stream.available() && (millis() - startMillis < sockets[mux]->_timeout)) { TINY_GSM_YIELD(); }
       char c = stream.read();
-#endif
       sockets[mux]->rx.put(c);
     }
-    DBG("### READ:", len_requested, "from", mux);
-    // sockets[mux]->sock_available = modemGetAvailable(mux);
-    sockets[mux]->sock_available = len_confirmed;
+    
     waitResponse();
-    return len_requested;
+
+    DBG("### READ:", recvLen, "from", mux);
+    sockets[mux]->sock_available = recvLen;
+    
+    return recvLen;
+
+// #ifdef TINY_GSM_USE_HEX
+//     sendAT(GF("+CIPRXGET=3,"), mux, ',', size);
+//     if (waitResponse(GF("+CIPRXGET:")) != 1) {
+//       return 0;
+//     }
+// #else
+//     sendAT(GF("+CIPRXGET=2,"), mux, ',', size);
+//     if (waitResponse(GF("+CIPRXGET:")) != 1) {
+//       return 0;
+//     }
+// #endif
+//     streamSkipUntil(','); // Skip Rx mode 2/normal or 3/HEX
+//     streamSkipUntil(','); // Skip mux
+//     size_t len_requested = stream.readStringUntil(',').toInt();
+//     //  ^^ Requested number of data bytes (1-1460 bytes)to be read
+//     size_t len_confirmed = stream.readStringUntil('\n').toInt();
+//     // ^^ Confirmed number of data bytes to be read, which may be less than requested.
+//     // 0 indicates that no data can be read.
+//     // This is actually be the number of bytes that will be remaining after the read
+
+//     for (size_t i=0; i<len_requested; i++) {
+//       uint32_t startMillis = millis();
+// #ifdef TINY_GSM_USE_HEX
+//       while (stream.available() < 2 && (millis() - startMillis < sockets[mux]->_timeout)) { TINY_GSM_YIELD(); }
+//       char buf[4] = { 0, };
+//       buf[0] = stream.read();
+//       buf[1] = stream.read();
+//       char c = strtol(buf, NULL, 16);
+// #else
+//       while (!stream.available() && (millis() - startMillis < sockets[mux]->_timeout)) { TINY_GSM_YIELD(); }
+//       char c = stream.read();
+// #endif
+//       sockets[mux]->rx.put(c);
+//     }
+//     DBG("### READ:", len_requested, "from", mux);
+//     // sockets[mux]->sock_available = modemGetAvailable(mux);
+//     sockets[mux]->sock_available = len_confirmed;
+//     waitResponse();
+//     return len_requested;
   }
 
   size_t modemGetAvailable(uint8_t mux) {
