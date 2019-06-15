@@ -824,7 +824,7 @@ TINY_GSM_MODEM_WAIT_FOR_NETWORK()
    * MQTT functions
    */
   void mqttInit(const char host[], uint16_t port = 1883,  uint8_t cleanSession = 0, 
-                uint16_t keepTime = 60, uint8_t qos = 0) {
+                uint16_t keepTime = 60) {
     sendAT(GF("+SMCONF=\"URL\",\""), host, GF("\",\""), port, GF("\""));
     waitResponse(3000L);
 
@@ -832,9 +832,6 @@ TINY_GSM_MODEM_WAIT_FOR_NETWORK()
     waitResponse(3000L);
 
     sendAT(GF("+SMCONF=\"CLEANSS\","), cleanSession);
-    waitResponse(3000L);
-
-    sendAT(GF("+SMCONF=\"QOS\","), qos);
     waitResponse(3000L);
   }
 
@@ -849,6 +846,34 @@ TINY_GSM_MODEM_WAIT_FOR_NETWORK()
     waitResponse(3000L);
 
     sendAT(GF("+SMCONN"));
+    if (waitResponse(5000L) != 1) {
+      return false;
+    }
+
+    return true;
+  }
+
+  bool mqttDisconnect() {
+    sendAT(GF("+SMDISC"));
+    if (waitResponse(5000L) != 1) {
+      return false;
+    }
+
+    return true;
+  }
+
+  bool mqttPublish(const char topic[], const char payload[], uint8_t qos = 0, bool retained = false) {
+    uint16_t len = (uint16_t)strlen(payload);
+    uint8_t ret = retained ? 1 : 0;
+
+    sendAT(GF("+SMPUB=\""), topic, GF("\","), len, GF(","), qos, GF(","), ret);
+    if (waitResponse(GF(">")) != 1) {
+      return false;
+    }
+
+    stream.write((uint8_t*)payload, len);
+    stream.flush();
+
     if (waitResponse(5000L) != 1) {
       return false;
     }
