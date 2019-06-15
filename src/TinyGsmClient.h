@@ -35,6 +35,7 @@
 #elif defined(TINY_GSM_MODEM_SIM7000)
   #define TINY_GSM_MODEM_HAS_GPRS
   #define TINY_GSM_MODEM_HAS_GPS
+  #define TINY_GSM_MODEM_HAS_MQTT
   #include <TinyGsmClientSIM7000.h>
   typedef TinyGsmSim7000 TinyGsm;
   typedef TinyGsmSim7000::GsmClient TinyGsmClient;
