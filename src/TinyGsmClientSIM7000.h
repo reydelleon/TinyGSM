@@ -824,15 +824,65 @@ TINY_GSM_MODEM_WAIT_FOR_NETWORK()
    * MQTT functions
    */
   void mqttInit(const char host[], uint16_t port = 1883,  uint8_t cleanSession = 0, 
-                uint16_t keepTime = 60) {
+                uint16_t keepTime = 60, bool useSsl = false) {
     sendAT(GF("+SMCONF=\"URL\",\""), host, GF("\",\""), port, GF("\""));
-    waitResponse(3000L);
+    waitResponse();
 
     sendAT(GF("+SMCONF=\"KEEPTIME\","), keepTime);
-    waitResponse(3000L);
+    waitResponse();
 
     sendAT(GF("+SMCONF=\"CLEANSS\","), cleanSession);
-    waitResponse(3000L);
+    waitResponse();
+    
+    if (useSsl)
+    {
+      sendAT(GF("+CSSLCFG=\"ctxindex\","), 0);
+      waitResponse();
+
+      sendAT(GF("+CSSLCFG=\"sslversion\",0,3"));
+      waitResponse();
+      
+      sendAT(GF("+CSSLCFG=\"convert\",2,\"azure_ca.crt\""));
+      waitResponse();
+
+      // sendAT(GF("+CSSLCFG=\"convert\",1,\"client.crt\""));
+      // waitResponse();
+
+      // sendAT(GF("+SMSSL=0"), GF(","), GF("\"azure_ca.crt\",\"client.crt\""));
+      // waitResponse();      
+      sendAT(GF("+SMSSL=0"), GF(","), GF("\"azure_ca.crt\""));
+      waitResponse();
+
+      sendAT(GF("+SMSSL?"));
+      waitResponse();
+    }
+  }
+
+  bool mqttUploadCertificate_P(const char fileName[], const char *data) {
+    uint16_t size = strlen_P(data);
+    char buffer[size];
+    memcpy_P(buffer, data, size);
+
+    sendAT(GF("+CFSINIT"));
+    waitResponse();
+
+    sendAT(GF("+CFSWFILE=3,\""), fileName, GF("\",0,"), size, GF(","), 5000);
+    if(waitResponse(GF("DOWNLOAD")) != 1) {
+      return false;
+    }
+
+    stream.write((uint8_t*)buffer, size);
+    stream.flush();
+
+    if (waitResponse(5000L) != 1) {
+      return false;
+    }
+
+    sendAT(GF("+CFSGFIS=3,\""), fileName, GF("\""));
+    waitResponse();
+
+    sendAT(GF("+CFSTERM"));
+    waitResponse();
   }
 
   bool mqttConnect(const char clientId[] = "", const char username[] = "", const char password[] = "") {
@@ -846,7 +896,7 @@ TINY_GSM_MODEM_WAIT_FOR_NETWORK()
     waitResponse(3000L);
 
     sendAT(GF("+SMCONN"));
-    if (waitResponse(5000L) != 1) {
+    if (waitResponse(20000L, GF(GSM_NL "OK"), GF(GSM_NL "ERROR")) != 1) {
       return false;
     }
 
