@@ -836,7 +836,7 @@ TINY_GSM_MODEM_WAIT_FOR_NETWORK()
     
     if (useSsl)
     {
-      sendAT(GF("+CSSLCFG=\"ctxindex\","), 0);
+      sendAT(GF("+CSSLCFG=\"ctxindex\",1"));
       waitResponse();
 
       sendAT(GF("+CSSLCFG=\"sslversion\",0,3"));
@@ -845,13 +845,13 @@ TINY_GSM_MODEM_WAIT_FOR_NETWORK()
       sendAT(GF("+CSSLCFG=\"convert\",2,\"azure_ca.crt\""));
       waitResponse();
 
-      // sendAT(GF("+CSSLCFG=\"convert\",1,\"client.crt\""));
-      // waitResponse();
-
-      // sendAT(GF("+SMSSL=0"), GF(","), GF("\"azure_ca.crt\",\"client.crt\""));
-      // waitResponse();      
-      sendAT(GF("+SMSSL=0"), GF(","), GF("\"azure_ca.crt\""));
+      sendAT(GF("+CSSLCFG=\"convert\",1,\"client.crt\",\"client.key\""));
       waitResponse();
+
+      sendAT(GF("+SMSSL=1"), GF(","), GF("\"azure_ca.crt\",\"client.crt\""));
+      waitResponse();
+      // sendAT(GF("+SMSSL=1"), GF(","), GF("\"azure_ca.crt\""));
+      // waitResponse();
 
       sendAT(GF("+SMSSL?"));
       waitResponse();
