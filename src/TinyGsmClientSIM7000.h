@@ -824,7 +824,7 @@ TINY_GSM_MODEM_WAIT_FOR_NETWORK()
    * MQTT functions
    */
   void mqttInit(const char host[], uint16_t port = 1883,  uint8_t cleanSession = 0, 
-                uint16_t keepTime = 60, bool useSsl = false) {
+                uint8_t qos = 0, uint16_t keepTime = 60, bool useSsl = false) {
     sendAT(GF("+SMCONF=\"URL\",\""), host, GF("\",\""), port, GF("\""));
     waitResponse();
 
@@ -833,10 +833,13 @@ TINY_GSM_MODEM_WAIT_FOR_NETWORK()
 
     sendAT(GF("+SMCONF=\"CLEANSS\","), cleanSession);
     waitResponse();
+
+    sendAT(GF("+SMCONF=\"QOS\","), qos);
+    waitResponse();
     
     if (useSsl)
     {
-      sendAT(GF("+CSSLCFG=\"ctxindex\",1"));
+      sendAT(GF("+CSSLCFG=\"ctxindex\",0"));
       waitResponse();
 
       sendAT(GF("+CSSLCFG=\"sslversion\",0,3"));
@@ -858,6 +861,9 @@ TINY_GSM_MODEM_WAIT_FOR_NETWORK()
     }
   }
 
+  /**
+   * Loads certificates from PROGMEM
+   */
   bool mqttUploadCertificate_P(const char fileName[], const char *data) {
     uint16_t size = strlen_P(data);
     char buffer[size];
@@ -896,7 +902,7 @@ TINY_GSM_MODEM_WAIT_FOR_NETWORK()
     waitResponse(3000L);
 
     sendAT(GF("+SMCONN"));
-    if (waitResponse(20000L, GF(GSM_NL "OK"), GF(GSM_NL "ERROR")) != 1) {
+    if (waitResponse(10000L, GF(GSM_NL "OK"), GF(GSM_NL "ERROR")) != 1) {
       return false;
     }
 
