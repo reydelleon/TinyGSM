@@ -918,6 +918,18 @@ TINY_GSM_MODEM_WAIT_FOR_NETWORK()
     return true;
   }
 
+    bool isMqttConnected() {
+    sendAT(GF("+SMSTATE?"));
+    if (waitResponse(GF("+SMSTATE:")) != 1) {
+      return false;
+    }
+
+    uint8_t status = stream.readStringUntil('\n').toInt();
+    waitResponse();
+
+    return status == 1;
+  }
+
   bool mqttPublish(const char topic[], const char payload[], uint8_t qos = 0, bool retained = false) {
     uint16_t len = (uint16_t)strlen(payload);
     uint8_t ret = retained ? 1 : 0;
