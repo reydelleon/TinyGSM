@@ -655,7 +655,7 @@ TINY_GSM_MODEM_WAIT_FOR_NETWORK()
   }
 
   // get GPS informations
-  bool getGPS(float *lat, float *lon, float *speed=0, int *alt=0, int *vsat=0, int *usat=0) {
+  bool getGPS(float *lat, float *lon, float *speed=0, int *course=0, int *alt=0, int *vsat=0, int *usat=0) {
     //String buffer = "";
     bool fix = false;
 
@@ -671,15 +671,15 @@ TINY_GSM_MODEM_WAIT_FOR_NETWORK()
     *lon =  stream.readStringUntil(',').toFloat(); //lon
     if (alt != NULL) *alt =  stream.readStringUntil(',').toFloat(); //lon
     if (speed != NULL) *speed = stream.readStringUntil(',').toFloat(); //speed
+    if (course != NULL) *course = stream.readStringUntil(',').toInt(); //course
     stream.readStringUntil(',');
     stream.readStringUntil(',');
     stream.readStringUntil(',');
     stream.readStringUntil(',');
     stream.readStringUntil(',');
     stream.readStringUntil(',');
-    stream.readStringUntil(',');
-    if (vsat != NULL) *vsat = stream.readStringUntil(',').toInt(); //viewed satelites
-    if (usat != NULL) *usat = stream.readStringUntil(',').toInt(); //used satelites
+    if (vsat != NULL) *vsat = stream.readStringUntil(',').toInt(); //viewed satellites
+    if (usat != NULL) *usat = stream.readStringUntil(',').toInt(); //used satellites
     stream.readStringUntil('\n');
 
     waitResponse();
